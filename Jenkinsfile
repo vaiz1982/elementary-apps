@@ -1,9 +1,11 @@
+# Jenkinsfile v2.0 - Multi-App CI/CD Pipeline
+# Created by Jenkins Build 2
+
 pipeline {
     agent any
     
     environment {
-        DOCKER_HUB_REPO = "vaiz82/elementary-echo-app"
-        TEST_PORT = "5001"
+        DOCKER_HUB_ORG = "vaiz82"
     }
     
     stages {
@@ -14,37 +16,19 @@ pipeline {
             }
         }
         
-        stage("🔨 Build Image") {
-            steps {
-                dir("echo-app") {
-                    sh """
-                    docker build -t ${DOCKER_HUB_REPO}:build-${BUILD_NUMBER} .
-                    echo "✅ Image built"
-                    """
-                }
-            }
-        }
-        
-        stage("🚀 Test Container") {
+        stage("🚀 Build All Apps") {
             steps {
                 sh """
-                # Clean up
-                docker stop test-container-${BUILD_NUMBER} 2>/dev/null || true
-                docker rm test-container-${BUILD_NUMBER} 2>/dev/null || true
+                echo "=== Building All Apps ==="
                 
-                echo "Starting container..."
-                docker run -d --name test-container-${BUILD_NUMBER} -p ${TEST_PORT}:5000 ${DOCKER_HUB_REPO}:build-${BUILD_NUMBER}
-                
-                sleep 10
-                
-                echo "=== Testing POST /echo ==="
-                curl -X POST http://localhost:${TEST_PORT}/echo \
-                     -H "Content-Type: application/json" \
-                     -d '{"test": "jenkins"}' \
-                     -w "\nStatus: %{http_code}\n" || true
-                
-                docker stop test-container-${BUILD_NUMBER}
-                docker rm test-container-${BUILD_NUMBER}
+                for app_dir in */; do
+                    app=\$(basename "\$app_dir")
+                    echo "Building \$app..."
+                    cd "\$app_dir"
+                    docker build -t \${DOCKER_HUB_ORG}/\$app:build-\${BUILD_NUMBER} .
+                    echo "✅ \$app image built"
+                    cd ..
+                done
                 """
             }
         }
@@ -57,9 +41,16 @@ pipeline {
                     passwordVariable: "DOCKER_PAT"
                 )]) {
                     sh """
-                    echo "$DOCKER_PAT" | docker login -u "$DOCKER_USER" --password-stdin
-                    docker push ${DOCKER_HUB_REPO}:build-${BUILD_NUMBER}
-                    echo "✅ Pushed to Docker Hub!"
+                    echo "\$DOCKER_PAT" | docker login -u "\$DOCKER_USER" --password-stdin
+                    echo "Pushing all apps to Docker Hub..."
+                    
+                    for app_dir in */; do
+                        app=\$(basename "\$app_dir")
+                        echo "Pushing \$app..."
+                        docker push \${DOCKER_HUB_ORG}/\$app:build-\${BUILD_NUMBER}
+                    done
+                    
+                    echo "✅ All apps pushed to Docker Hub!"
                     """
                 }
             }
@@ -71,7 +62,7 @@ pipeline {
             cleanWs()
         }
         success {
-            echo "✅ Pipeline completed successfully!"
+            echo "🎉 Multi-app CI/CD pipeline completed successfully!"
         }
     }
 }
